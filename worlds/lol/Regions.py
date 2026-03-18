@@ -18,20 +18,24 @@ def create_regions(multiworld: MultiWorld, player: int, options, possible_champi
 
     # Set up locations
     
+    aram = bool(options.aram_mode)
     for champion_id in champions:
         champion_name = champions[champion_id]["name"]
         if champion_name in possible_champions:
-            regions["Match"].locations.append(champion_name + " - Assist Taking Dragon")
-            regions["Match"].locations.append(champion_name + " - Assist Taking Rift Herald")
-            regions["Match"].locations.append(champion_name + " - Assist Taking Baron")
+            if not aram:
+                regions["Match"].locations.append(champion_name + " - Assist Taking Dragon")
+                regions["Match"].locations.append(champion_name + " - Assist Taking Rift Herald")
+                regions["Match"].locations.append(champion_name + " - Assist Taking Baron")
             regions["Match"].locations.append(champion_name + " - Assist Taking Tower")
             regions["Match"].locations.append(champion_name + " - Assist Taking Inhibitor")
+            regions["Match"].locations.append(champion_name + " - Enemy Nexus Destroyed")
             regions["Match"].locations.append(champion_name + " - Get X Assists")
-            if "Support" in champions[champion_id]["tags"]:
+            if not aram and "Support" in champions[champion_id]["tags"]:
                 regions["Match"].locations.append(champion_name + " - Get X Ward Score")
             if "Support" not in champions[champion_id]["tags"]:
                 regions["Match"].locations.append(champion_name + " - Get X Kills")
-                regions["Match"].locations.append(champion_name + " - Get X Creep Score")
+                if not aram:
+                    regions["Match"].locations.append(champion_name + " - Get X Creep Score")
     for i in range(min(options.starting_champions, len(possible_champions))):
         regions["Match"].locations.append("Starting Champion " + str(i+1))
     

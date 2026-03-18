@@ -15,6 +15,16 @@ class RequiredLPPercentage(Range):
     range_end = 100
     display_name = "Required LP Percentage"
 
+
+class TotalLPCount(Range):
+    """
+    Total LP items to place in the world.
+    """
+    default = 80
+    range_start = 1
+    range_end = 500
+    display_name = "Total LP Count"
+
 class Champions(OptionSet):
     """
     Which champions are possibly included in the item pool?
@@ -65,7 +75,7 @@ class StartingChampions(Range):
     """
     default = 3
     range_start = 1
-    range_end = 5
+    range_end = 100
     display_name = "Starting Champions"
 
 class ChampionSubsetCount(Range):
@@ -77,6 +87,13 @@ class ChampionSubsetCount(Range):
     range_end = 200
     display_name = "Champion Subset Count"
 
+class ARAMMode(Toggle):
+    """
+    Enable ARAM mode. The only checks enabled are:
+    Tower, Inhibitor, Assists, and Kills.
+    """
+    display_name = "ARAM Mode"
+
 @dataclass
 class LOLOptions(PerGameCommonOptions):
     champions: Champions
@@ -84,6 +101,8 @@ class LOLOptions(PerGameCommonOptions):
     required_vision_score: RequiredVisionScore
     required_kills: RequiredKills
     required_assists: RequiredAssists
+    total_lp_count: TotalLPCount
     required_lp: RequiredLPPercentage
     starting_champions: StartingChampions
     champion_subset_count: ChampionSubsetCount
+    aram_mode: ARAMMode

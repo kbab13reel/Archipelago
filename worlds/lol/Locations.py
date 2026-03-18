@@ -32,6 +32,7 @@ for champion_id in champions:
     location_table[champion_name + " - Assist Taking Baron"]       = LOLLocationData("Objective", 566_000000 + (int(champion_id) * 100) + 3)
     location_table[champion_name + " - Assist Taking Tower"]       = LOLLocationData("Objective", 566_000000 + (int(champion_id) * 100) + 4)
     location_table[champion_name + " - Assist Taking Inhibitor"]   = LOLLocationData("Objective", 566_000000 + (int(champion_id) * 100) + 5)
+    location_table[champion_name + " - Enemy Nexus Destroyed"]     = LOLLocationData("Objective", 566_000000 + (int(champion_id) * 100) + 10)
     location_table[champion_name + " - Get X Assists"]             = LOLLocationData("Objective", 566_000000 + (int(champion_id) * 100) + 6)
     if "Support" in champions[champion_id]["tags"]:
         location_table[champion_name + " - Get X Ward Score"]      = LOLLocationData("Objective", 566_000000 + (int(champion_id) * 100) + 7)
@@ -39,11 +40,8 @@ for champion_id in champions:
         location_table[champion_name + " - Get X Kills"]           = LOLLocationData("Objective", 566_000000 + (int(champion_id) * 100) + 8)
         location_table[champion_name + " - Get X Creep Score"]     = LOLLocationData("Objective", 566_000000 + (int(champion_id) * 100) + 9)
 
-location_table["Starting Champion 1"] = LOLLocationData("Starting", 566_000001)
-location_table["Starting Champion 2"] = LOLLocationData("Starting", 566_000002)
-location_table["Starting Champion 3"] = LOLLocationData("Starting", 566_000003)
-location_table["Starting Champion 4"] = LOLLocationData("Starting", 566_000004)
-location_table["Starting Champion 5"] = LOLLocationData("Starting", 566_000005)
+for index in range(1, 101):
+    location_table[f"Starting Champion {index}"] = LOLLocationData("Starting", 566_000000 + index)
 
 event_location_table: Dict[str, LOLLocationData] = {
 }

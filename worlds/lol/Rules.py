@@ -9,20 +9,24 @@ def has_at_least(state: CollectionState, player: int, item_name, item_qty_requir
     return state.count(item_name, player) >= item_qty_required
 
 def set_rules(multiworld: MultiWorld, player: int, options, required_lp, possible_champions):
+    aram = bool(options.aram_mode)
     for champion_id in champions:
         champion_name = champions[champion_id]["name"]
         if champion_name in possible_champions:
-            multiworld.get_location(champion_name + " - Assist Taking Dragon"     , player).access_rule = lambda state, champion_name = champion_name: has_item(state, player, champion_name)
-            multiworld.get_location(champion_name + " - Assist Taking Rift Herald", player).access_rule = lambda state, champion_name = champion_name: has_item(state, player, champion_name)
-            multiworld.get_location(champion_name + " - Assist Taking Baron"      , player).access_rule = lambda state, champion_name = champion_name: has_item(state, player, champion_name)
+            if not aram:
+                multiworld.get_location(champion_name + " - Assist Taking Dragon"     , player).access_rule = lambda state, champion_name = champion_name: has_item(state, player, champion_name)
+                multiworld.get_location(champion_name + " - Assist Taking Rift Herald", player).access_rule = lambda state, champion_name = champion_name: has_item(state, player, champion_name)
+                multiworld.get_location(champion_name + " - Assist Taking Baron"      , player).access_rule = lambda state, champion_name = champion_name: has_item(state, player, champion_name)
             multiworld.get_location(champion_name + " - Assist Taking Tower"      , player).access_rule = lambda state, champion_name = champion_name: has_item(state, player, champion_name)
             multiworld.get_location(champion_name + " - Assist Taking Inhibitor"  , player).access_rule = lambda state, champion_name = champion_name: has_item(state, player, champion_name)
+            multiworld.get_location(champion_name + " - Enemy Nexus Destroyed"    , player).access_rule = lambda state, champion_name = champion_name: has_item(state, player, champion_name)
             multiworld.get_location(champion_name + " - Get X Assists"            , player).access_rule = lambda state, champion_name = champion_name: has_item(state, player, champion_name)
-            if "Support" in champions[champion_id]["tags"]:
+            if not aram and "Support" in champions[champion_id]["tags"]:
                 multiworld.get_location(champion_name + " - Get X Ward Score"     , player).access_rule = lambda state, champion_name = champion_name: has_item(state, player, champion_name)
             if "Support" not in champions[champion_id]["tags"]:
                 multiworld.get_location(champion_name + " - Get X Kills"          , player).access_rule = lambda state, champion_name = champion_name: has_item(state, player, champion_name)
-                multiworld.get_location(champion_name + " - Get X Creep Score"    , player).access_rule = lambda state, champion_name = champion_name: has_item(state, player, champion_name)
+                if not aram:
+                    multiworld.get_location(champion_name + " - Get X Creep Score"    , player).access_rule = lambda state, champion_name = champion_name: has_item(state, player, champion_name)
     
     # Win condition.
     multiworld.completion_condition[player] = lambda state: has_at_least(state, player, "LP", required_lp)
