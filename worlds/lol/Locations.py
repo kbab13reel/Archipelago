@@ -39,11 +39,10 @@ for champion_id in champions:
         location_table[champion_name + " - Get X Kills"]           = LOLLocationData("Objective", 566_000000 + (int(champion_id) * 100) + 8)
         location_table[champion_name + " - Get X Creep Score"]     = LOLLocationData("Objective", 566_000000 + (int(champion_id) * 100) + 9)
 
-location_table["Starting Champion 1"] = LOLLocationData("Starting", 566_000001)
-location_table["Starting Champion 2"] = LOLLocationData("Starting", 566_000002)
-location_table["Starting Champion 3"] = LOLLocationData("Starting", 566_000003)
-location_table["Starting Champion 4"] = LOLLocationData("Starting", 566_000004)
-location_table["Starting Champion 5"] = LOLLocationData("Starting", 566_000005)
+for index in range(1, 101):
+    location_table[f"Starting Champion {index}"] = LOLLocationData("Starting", 566_000000 + index)
+
+location_table["Game Win - Enemy Nexus Destroyed"] = LOLLocationData("Objective", 566_900001)
 
 event_location_table: Dict[str, LOLLocationData] = {
 }

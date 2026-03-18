@@ -15,16 +15,19 @@ for champion in list(champion_data.keys()):
 
 ###SET GLOBAL VARIABLES###
 url = "https://127.0.0.1:2999/liveclientdata/allgamedata"
+GAME_WIN_LOCATION_CODE = 566900001
 unlocked_champion_ids = []
 total_lp_gained = 0
 in_match = False
+tracked_teammates = set()
 game_values = {
     "required_assists": 0,
     "required_cs"     : 0,
     "required_kills"  : 0,
     "required_lp"     : 0,
     "required_vs"     : 0,
-    "current_lp"      : 0
+    "current_lp"      : 0,
+    "starting_champions": 0
 }
 
 ###SET UP GAME COMMUNICATION PATH###
@@ -51,10 +54,11 @@ def get_items(game_values):
             if file.startswith("AP"):
                 with open(os.path.join(game_communication_path, file), 'r') as f:
                     item_id = int(f.readline())
-                    if item_id % 565000000 == 0:
+                    decoded_item = item_id - 565000000
+                    if decoded_item == 0:
                         game_values["current_lp"] = game_values["current_lp"] + 1
-                    else:
-                        unlocked_champion_ids.append(item_id % 565000000)
+                    elif decoded_item in champions:
+                        unlocked_champion_ids.append(decoded_item)
                     f.close()
 
 def read_cfg(game_values):
@@ -84,6 +88,11 @@ def read_cfg(game_values):
                 game_values["required_vs"] = int(f.readline())
         else:
             game_values["required_vs"] = 0
+        if "Starting_Champion_Count.cfg" in files:
+            with open(os.path.join(game_communication_path, "Starting_Champion_Count.cfg"), 'r') as f:
+                game_values["starting_champions"] = max(0, int(f.readline()))
+        else:
+            game_values["starting_champions"] = 0
 
 def display_champion_list(window):
     champion_table_rows = []
@@ -101,14 +110,25 @@ def display_values(window, game_values):
     value_table_rows.append(['Current LP:'           , str(game_values["current_lp"])])
     window["Values Table"].update(values=value_table_rows)
 
-def send_starting_champion_check():
-    for i in range(6):
-        with open(os.path.join(game_communication_path, "send56600000" + str(i)), 'w') as f:
+def send_starting_champion_check(game_values):
+    for i in range(1, game_values["starting_champions"] + 1):
+        with open(os.path.join(game_communication_path, f"send{566000000 + i}"), 'w') as f:
             f.close()
 
 def check_lp_for_victory(game_values):
     if game_values["current_lp"] >= game_values["required_lp"] and game_values["required_lp"] != 0:
         with open(os.path.join(game_communication_path, "victory"), 'w') as f:
+            f.close()
+
+def won_game(game_data):
+    for event in game_data["events"]["Events"]:
+        if event.get("EventName") == "GameEnd" and event.get("Result") == "Win":
+            return True
+    return False
+
+def send_game_win_location(game_data):
+    if won_game(game_data):
+        with open(os.path.join(game_communication_path, f"send{GAME_WIN_LOCATION_CODE}"), 'w') as f:
             f.close()
 
 def get_player_name(game_data):
@@ -123,6 +143,36 @@ def get_champion_id(champion_name):
     for champion_id in champions:
         if champions[champion_id]["name"] == champion_name:
             return champion_id
+
+def get_player_data(game_data, player_name):
+    for player in game_data["allPlayers"]:
+        if player["riotIdGameName"] == player_name:
+            return player
+    return None
+
+def get_available_teammates(game_data):
+    player_name = get_player_name(game_data)
+    player_data = get_player_data(game_data, player_name)
+    if player_data is None:
+        return []
+
+    player_team = player_data.get("team")
+    teammate_names = []
+    for player in game_data["allPlayers"]:
+        if player.get("team") == player_team and player["riotIdGameName"] != player_name:
+            teammate_names.append(player["riotIdGameName"])
+    return sorted(teammate_names)
+
+def update_teammate_selector(window, teammate_names):
+    valid_teammates = sorted(tracked_teammates.intersection(teammate_names))
+    set_to_index = [teammate_names.index(teammate_name) for teammate_name in valid_teammates]
+    window["Tracked Teammates List"].update(values=teammate_names, set_to_index=set_to_index)
+
+def get_tracked_players(game_data):
+    player_name = get_player_name(game_data)
+    teammate_names = set(get_available_teammates(game_data))
+    selected_teammates = sorted(tracked_teammates.intersection(teammate_names))
+    return [player_name] + selected_teammates
 
 def took_tower(game_data, player_name):
     for event in game_data["events"]["Events"]:
@@ -208,11 +258,16 @@ def kills_above(game_data, player_name, score_target):
 def assists_above(game_data, player_name, score_target):
     return player_assists(game_data, player_name) >= score_target and score_target > 0
 
-def get_objectives_complete(game_data, game_values):
+def get_objectives_complete_for_player(game_data, game_values, player_name):
     objectives_complete = []
-    player_name = get_player_name(game_data)
     champion_name = get_champion_name(game_data, player_name)
+    if champion_name is None:
+        return objectives_complete, None
+
     champion_id = get_champion_id(champion_name)
+    if champion_id is None:
+        return objectives_complete, None
+
     if champion_id in unlocked_champion_ids:
         if assisted_epic_monster(game_data, player_name, "Dragon"):
             objectives_complete.append(1)
@@ -232,7 +287,13 @@ def get_objectives_complete(game_data, game_values):
             objectives_complete.append(8)
         if creep_score_above(game_data, player_name, game_values["required_cs"]):
             objectives_complete.append(9)
-    send_locations(objectives_complete, champion_id)
+    return objectives_complete, champion_id
+
+def get_objectives_complete(game_data, game_values):
+    for player_name in get_tracked_players(game_data):
+        objectives_complete, champion_id = get_objectives_complete_for_player(game_data, game_values, player_name)
+        if champion_id is not None:
+            send_locations(objectives_complete, champion_id)
 
 def send_locations(objectives_complete, champion_id):
     for objective_id in objectives_complete:
@@ -257,6 +318,16 @@ layout = [  [
                     [sg.Table(
                         [
                         ], headings = ["Value Type", "Value Amount"], key = "Values Table")]
+               ]),
+                sg.Column(
+                [
+                    [sg.Text("Tracked Teammates")],
+                    [sg.Listbox(
+                        values = [],
+                        select_mode = sg.LISTBOX_SELECT_MODE_MULTIPLE,
+                        size = (24, 6),
+                        enable_events = True,
+                        key = "Tracked Teammates List")]
                ])
             ]
         ]
@@ -269,19 +340,24 @@ while True:
         break
     if event == 'Check for Match Button':
         in_match = True
+    if event == "Tracked Teammates List":
+        tracked_teammates = set(values["Tracked Teammates List"])
     check_lp_for_victory(game_values)
     get_items(game_values)
     read_cfg(game_values)
     display_champion_list(window)
     display_values(window, game_values)
-    send_starting_champion_check()
+    send_starting_champion_check(game_values)
     if in_match:
         game_data = get_game_data()
     if game_data is None:
         window["In Match Text"].update("In Match: No Match Found")
+        update_teammate_selector(window, [])
         in_match = False
     else:
         window["In Match Text"].update("In Match: In Match")
+        update_teammate_selector(window, get_available_teammates(game_data))
         get_objectives_complete(game_data, game_values)
+        send_game_win_location(game_data)
 
 window.close()
