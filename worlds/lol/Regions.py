@@ -1,7 +1,7 @@
 from typing import Dict, List, NamedTuple, Optional
 
 from BaseClasses import MultiWorld, Region, Entrance
-from .Locations import LOLLocation, location_table, get_locations_by_category
+from .Locations import LOLLocation, location_table, get_locations_by_category, get_champion_location_suffixes
 from .Data import champions
 
 
@@ -17,25 +17,14 @@ def create_regions(multiworld: MultiWorld, player: int, options, possible_champi
     }
 
     # Set up locations
-    
-    aram = bool(options.aram_mode)
+
+    enabled_checks = options.enabled_checks.value
+    sst = bool(options.support_special_treatment)
     for champion_id in champions:
         champion_name = champions[champion_id]["name"]
         if champion_name in possible_champions:
-            if not aram:
-                regions["Match"].locations.append(champion_name + " - Assist Taking Dragon")
-                regions["Match"].locations.append(champion_name + " - Assist Taking Rift Herald")
-                regions["Match"].locations.append(champion_name + " - Assist Taking Baron")
-            regions["Match"].locations.append(champion_name + " - Assist Taking Tower")
-            regions["Match"].locations.append(champion_name + " - Assist Taking Inhibitor")
-            regions["Match"].locations.append(champion_name + " - Enemy Nexus Destroyed")
-            regions["Match"].locations.append(champion_name + " - Get X Assists")
-            if not aram and "Support" in champions[champion_id]["tags"]:
-                regions["Match"].locations.append(champion_name + " - Get X Ward Score")
-            if "Support" not in champions[champion_id]["tags"]:
-                regions["Match"].locations.append(champion_name + " - Get X Kills")
-                if not aram:
-                    regions["Match"].locations.append(champion_name + " - Get X Creep Score")
+            for suffix in get_champion_location_suffixes(champion_id, enabled_checks, sst):
+                regions["Match"].locations.append(champion_name + suffix)
     for i in range(min(options.starting_champions, len(possible_champions))):
         regions["Match"].locations.append("Starting Champion " + str(i+1))
     
