@@ -4,6 +4,7 @@ import requests
 import os
 import ast
 import sys
+import time
 
 ###GET VERSION###
 def _get_world_version() -> str:
@@ -57,7 +58,10 @@ if not os.path.exists(game_communication_path):
 ###DEFINE FUNCTIONS###
 def get_game_data():
     try:
-        return requests.get(url, verify=False).json()
+        data = requests.get(url, verify=False).json()
+        if "activePlayer" not in data or "allPlayers" not in data:
+            return None
+        return data
     except:
         return None
 
@@ -493,7 +497,7 @@ layout = [  [
         ]
 
 window = sg.Window(_WINDOW_TITLE, layout)
-window.metadata = {"champion_sort": "name", "selected_champion_id": None}
+window.metadata = {"champion_sort": "name", "selected_champion_id": None, "game_connected": False}
 while True:
     game_data = None
     event, values = window.read(timeout=2000)
@@ -501,6 +505,7 @@ while True:
         break
     if event == 'Check for Match Button':
         in_match = True
+        window.metadata["game_connected"] = False
     if isinstance(event, tuple) and len(event) == 3 and event[0] == "Champions Unlocked Table" and event[1] == "+CLICKED+":
         cell = event[2]
         # cell may be an int or a (row, col) tuple depending on PySimpleGUI version/events
@@ -547,11 +552,26 @@ while True:
     send_starting_champion_check(game_values)
     if in_match:
         game_data = get_game_data()
+        if game_data is None and window.metadata.get("game_connected"):
+            # Was previously connected — game may have just ended. Retry quickly
+            # to capture the final state before the API shuts down.
+            for _ in range(5):
+                time.sleep(0.4)
+                game_data = get_game_data()
+                if game_data is not None:
+                    break
     if game_data is None:
-        window["In Match Text"].update("In Match: No Match Found")
-        update_teammate_selector(window, [])
-        in_match = False
+        if in_match and not window.metadata.get("game_connected"):
+            # Still waiting for the game to finish loading
+            window["In Match Text"].update("In Match: Waiting for game...")
+            update_teammate_selector(window, [])
+        else:
+            window["In Match Text"].update("In Match: No Match Found")
+            update_teammate_selector(window, [])
+            in_match = False
+            window.metadata["game_connected"] = False
     else:
+        window.metadata["game_connected"] = True
         window["In Match Text"].update("In Match: In Match")
         update_teammate_selector(window, get_available_teammates(game_data))
         get_objectives_complete(game_data, game_values)
