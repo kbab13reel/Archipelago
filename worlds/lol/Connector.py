@@ -4,7 +4,7 @@ import requests
 import os
 import ast
 import sys
-import time
+from concurrent.futures import ThreadPoolExecutor
 
 ###GET VERSION###
 def _get_world_version() -> str:
@@ -31,7 +31,6 @@ for champion in list(champion_data.keys()):
 ###SET GLOBAL VARIABLES###
 url = "https://127.0.0.1:2999/liveclientdata/allgamedata"
 unlocked_champion_ids = []
-total_lp_gained = 0
 in_match = False
 tracked_teammates = set()
 game_values = {
@@ -57,71 +56,97 @@ if not os.path.exists(game_communication_path):
 
 ###DEFINE FUNCTIONS###
 def get_game_data():
+    """Returns (status, data) where status is one of:
+      'api_down'     - League client not running / not in a game
+      'loading'      - API up but game hasn't started yet (no events)
+      'in_game'      - Active game in progress
+      'game_over'    - GameEnd event received
+    """
     try:
-        data = requests.get(url, verify=False).json()
+        data = requests.get(url, verify=False, timeout=1).json()
         if "activePlayer" not in data or "allPlayers" not in data:
-            return None
-        return data
+            return "api_down", None
+        events = data.get("events", {}).get("Events", [])
+        if not events:
+            return "loading", data
+        for event in events:
+            if event.get("EventName") == "GameEnd":
+                return "game_over", data
+        return "in_game", data
     except:
-        return None
+        return "api_down", None
 
 def get_items(game_values):
     game_values["current_lp"] = 0
     unlocked_champion_ids.clear()
-    for root, dirs, files in os.walk(game_communication_path):
-        for file in files:
-            if file.startswith("AP"):
-                with open(os.path.join(game_communication_path, file), 'r') as f:
-                    item_id = int(f.readline())
-                    decoded_item = item_id - 565000000
-                    if decoded_item == 0:
-                        game_values["current_lp"] = game_values["current_lp"] + 1
-                    elif decoded_item in champions:
-                        unlocked_champion_ids.append(decoded_item)
-                    f.close()
+    for file in os.listdir(game_communication_path):
+        if file.startswith("AP"):
+            with open(os.path.join(game_communication_path, file), 'r') as f:
+                item_id = int(f.readline())
+                decoded_item = item_id - 565000000
+                if decoded_item == 0:
+                    game_values["current_lp"] = game_values["current_lp"] + 1
+                elif decoded_item in champions:
+                    unlocked_champion_ids.append(decoded_item)
 
 def read_cfg(game_values):
-    for root, dirs, files in os.walk(game_communication_path):
-        if "Required_Assists.cfg" in files:
-            with open(os.path.join(game_communication_path, "Required_Assists.cfg"), 'r') as f:
-                game_values["required_assists"] = int(f.readline())
-        else:
-            game_values["required_assists"] = 0
-        if "Required_CS.cfg" in files:
-            with open(os.path.join(game_communication_path, "Required_CS.cfg"), 'r') as f:
-                game_values["required_cs"] = int(f.readline())
-        else:
-            game_values["required_cs"] = 0
-        if "Required_Kills.cfg" in files:
-            with open(os.path.join(game_communication_path, "Required_Kills.cfg"), 'r') as f:
-                game_values["required_kills"] = int(f.readline())
-        else:
-            game_values["required_kills"] = 0
-        if "Required_LP.cfg" in files:
-            with open(os.path.join(game_communication_path, "Required_LP.cfg"), 'r') as f:
-                game_values["required_lp"] = int(f.readline())
-        else:
-            game_values["required_lp"] = 0
-        if "Required_VS.cfg" in files:
-            with open(os.path.join(game_communication_path, "Required_VS.cfg"), 'r') as f:
-                game_values["required_vs"] = int(f.readline())
-        else:
-            game_values["required_vs"] = 0
-        if "Starting_Champion_Count.cfg" in files:
-            with open(os.path.join(game_communication_path, "Starting_Champion_Count.cfg"), 'r') as f:
-                game_values["starting_champions"] = max(0, int(f.readline()))
-        else:
-            game_values["starting_champions"] = 0
-        if "Enabled_Checks.cfg" in files:
-            with open(os.path.join(game_communication_path, "Enabled_Checks.cfg"), 'r') as f:
-                game_values["enabled_checks"] = ast.literal_eval(f.read())
-        else:
-            game_values["enabled_checks"] = None
-        if "Support_Special_Treatment.cfg" in files:
-            with open(os.path.join(game_communication_path, "Support_Special_Treatment.cfg"), 'r') as f:
-                game_values["support_special_treatment"] = bool(int(f.read().strip()))
-        else:
-            game_values["support_special_treatment"] = True
+    files = os.listdir(game_communication_path)
+    if "Required_Assists.cfg" in files:
+        with open(os.path.join(game_communication_path, "Required_Assists.cfg"), 'r') as f:
+            game_values["required_assists"] = int(f.readline())
+    else:
+        game_values["required_assists"] = 0
+    if "Required_CS.cfg" in files:
+        with open(os.path.join(game_communication_path, "Required_CS.cfg"), 'r') as f:
+            game_values["required_cs"] = int(f.readline())
+    else:
+        game_values["required_cs"] = 0
+    if "Required_Kills.cfg" in files:
+        with open(os.path.join(game_communication_path, "Required_Kills.cfg"), 'r') as f:
+            game_values["required_kills"] = int(f.readline())
+    else:
+        game_values["required_kills"] = 0
+    if "Required_LP.cfg" in files:
+        with open(os.path.join(game_communication_path, "Required_LP.cfg"), 'r') as f:
+            game_values["required_lp"] = int(f.readline())
+    else:
+        game_values["required_lp"] = 0
+    if "Required_VS.cfg" in files:
+        with open(os.path.join(game_communication_path, "Required_VS.cfg"), 'r') as f:
+            game_values["required_vs"] = int(f.readline())
+    else:
+        game_values["required_vs"] = 0
+    if "Starting_Champion_Count.cfg" in files:
+        with open(os.path.join(game_communication_path, "Starting_Champion_Count.cfg"), 'r') as f:
+            game_values["starting_champions"] = max(0, int(f.readline()))
+    else:
+        game_values["starting_champions"] = 0
+    if "Enabled_Checks.cfg" in files:
+        with open(os.path.join(game_communication_path, "Enabled_Checks.cfg"), 'r') as f:
+            game_values["enabled_checks"] = ast.literal_eval(f.read())
+    else:
+        game_values["enabled_checks"] = None
+    if "Support_Special_Treatment.cfg" in files:
+        with open(os.path.join(game_communication_path, "Support_Special_Treatment.cfg"), 'r') as f:
+            game_values["support_special_treatment"] = bool(int(f.read().strip()))
+    else:
+        game_values["support_special_treatment"] = True
+
+def _champion_row_color(champion_id, window):
+    """Returns a background color for a champion row based on unlock/check state."""
+    if champion_id is None or champion_id not in unlocked_champion_ids:
+        return "#5C0000"  # dark red — locked
+    active_location_ids  = window.metadata.get("active_location_ids")  if hasattr(window, "metadata") else None
+    checked_location_ids = window.metadata.get("checked_location_ids") if hasattr(window, "metadata") else None
+    if active_location_ids is None or checked_location_ids is None:
+        return "#1A5C1A"  # green — unlocked, can't count yet
+    champ_name = champions[champion_id]["name"]
+    prefix = champ_name + " - "
+    checked_ids = {int(x) for x in checked_location_ids}
+    total = sum(1 for n in active_location_ids if n.startswith(prefix))
+    done  = sum(1 for n, lid in active_location_ids.items() if n.startswith(prefix) and lid is not None and int(lid) in checked_ids)
+    remaining = max(0, total - done)
+    return "#1A5C1A" if remaining > 0 else "#3A3A3A"  # green / grey
 
 def display_champion_list(window):
     # Try to read active locations and mapping from the client slot data
@@ -214,6 +239,10 @@ def display_champion_list(window):
     elif sort_pref == "remaining":
         champion_table_rows.sort(key=lambda r: int(r[1]), reverse=reverse)
 
+    # Filter out fully-completed champions if checkbox is on
+    if window["Hide Completed Checkbox"].get():
+        champion_table_rows = [r for r in champion_table_rows if int(r[1]) > 0]
+
     # Cache for remaining-checks panel
     window.metadata["active_location_ids"] = active_location_ids
     window.metadata["checked_location_ids"] = checked_location_ids
@@ -222,7 +251,14 @@ def display_champion_list(window):
     if window.metadata.get("selected_champion_id") is None and champion_table_rows:
         window.metadata["selected_champion_id"] = get_champion_id(champion_table_rows[0][0])
 
-    window["Champions Unlocked Table"].update(values=champion_table_rows)
+    window["Champions Unlocked Table"].update(
+        values=champion_table_rows,
+        row_colors=[(i, _champion_row_color(get_champion_id(r[0]), window))
+                    for i, r in enumerate(champion_table_rows)])
+
+    total_champions = sum(1 for k in totals if k != "Starting")
+    unlocked_count = len(unlocked_champion_ids)
+    window["Champion Count Text"].update(f"({unlocked_count} / {total_champions})")
 
 def display_values(window, game_values):
     selected_champion_id = window.metadata.get("selected_champion_id") if hasattr(window, "metadata") else None
@@ -263,13 +299,13 @@ def display_values(window, game_values):
 
 def send_starting_champion_check(game_values):
     for i in range(1, game_values["starting_champions"] + 1):
-        with open(os.path.join(game_communication_path, f"send{566000000 + i}"), 'w') as f:
-            f.close()
+        with open(os.path.join(game_communication_path, f"send{566000000 + i}"), 'w'):
+            pass
 
 def check_lp_for_victory(game_values):
     if game_values["current_lp"] >= game_values["required_lp"] and game_values["required_lp"] != 0:
-        with open(os.path.join(game_communication_path, "victory"), 'w') as f:
-            f.close()
+        with open(os.path.join(game_communication_path, "victory"), 'w'):
+            pass
 
 def won_game(game_data):
     for event in game_data["events"]["Events"]:
@@ -290,29 +326,27 @@ def get_champion_id(champion_name):
         if champions[champion_id]["name"] == champion_name:
             return champion_id
 
-def get_player_data(game_data, player_name):
-    for player in game_data["allPlayers"]:
-        if player["riotIdGameName"] == player_name:
-            return player
-    return None
-
 def get_available_teammates(game_data):
     player_name = get_player_name(game_data)
-    player_data = get_player_data(game_data, player_name)
-    if player_data is None:
+    player_team = None
+    for player in game_data["allPlayers"]:
+        if player["riotIdGameName"] == player_name:
+            player_team = player.get("team")
+            break
+    if player_team is None:
         return []
-
-    player_team = player_data.get("team")
     teammate_names = []
     for player in game_data["allPlayers"]:
         if player.get("team") == player_team and player["riotIdGameName"] != player_name:
             teammate_names.append(player["riotIdGameName"])
     return sorted(teammate_names)
 
-def update_teammate_selector(window, teammate_names):
-    valid_teammates = sorted(tracked_teammates.intersection(teammate_names))
-    set_to_index = [teammate_names.index(teammate_name) for teammate_name in valid_teammates]
-    window["Tracked Teammates List"].update(values=teammate_names, set_to_index=set_to_index)
+def update_teammate_selector(window, teammate_names, game_data=None):
+    display = []
+    for name in teammate_names:
+        tracking = "✓ " if name in tracked_teammates else "  "
+        display.append(tracking + name)
+    window["Tracked Teammates List"].update(values=display)
 
 def get_tracked_players(game_data):
     player_name = get_player_name(game_data)
@@ -320,21 +354,9 @@ def get_tracked_players(game_data):
     selected_teammates = sorted(tracked_teammates.intersection(teammate_names))
     return [player_name] + selected_teammates
 
-def took_tower(game_data, player_name):
-    for event in game_data["events"]["Events"]:
-        if event["EventName"] == "TurretKilled" and event["KillerName"] == player_name:
-            return True
-    return False
-
 def assisted_tower(game_data, player_name):
     for event in game_data["events"]["Events"]:
         if event["EventName"] == "TurretKilled" and (event["KillerName"] == player_name or player_name in event["Assisters"]):
-            return True
-    return False
-
-def took_inhibitor(game_data, player_name):
-    for event in game_data["events"]["Events"]:
-        if event["EventName"] == "InhibKilled" and event["KillerName"] == player_name:
             return True
     return False
 
@@ -344,27 +366,9 @@ def assisted_inhibitor(game_data, player_name):
             return True
     return False
 
-def took_epic_monster(game_data, player_name, monster_name):
-    for event in game_data["events"]["Events"]:
-        if event["EventName"] == monster_name + "Kill" and event["KillerName"] == player_name:
-            return True
-    return False
-
 def assisted_epic_monster(game_data, player_name, monster_name):
     for event in game_data["events"]["Events"]:
         if event["EventName"] == monster_name + "Kill" and (event["KillerName"] == player_name or player_name in event["Assisters"]):
-            return True
-    return False
-
-def stole_epic_monster(game_data, player_name, monster_name):
-    for event in game_data["events"]["Events"]:
-        if event["EventName"] == monster_name + "Kill" and (event["KillerName"] == player_name or player_name in event["Assisters"]) and str(event["Stolen"]) == "True":
-            return True
-    return False
-
-def assisted_kill(game_data, player_name):
-    for event in game_data["events"]["Events"]:
-        if event["EventName"] == "ChampionKill" and (event["KillerName"] == player_name or player_name in event["Assisters"]):
             return True
     return False
 
@@ -459,53 +463,153 @@ def get_objectives_complete(game_data, game_values):
 
 def send_locations(objectives_complete, champion_id):
     for objective_id in objectives_complete:
-        with open(os.path.join(game_communication_path, "send" + str(566000000 + (champion_id * 100) + objective_id)), 'w') as f:
-            f.close()
+        with open(os.path.join(game_communication_path, "send" + str(566000000 + (champion_id * 100) + objective_id)), 'w'):
+            pass
+
+###LCU / CHAMP SELECT###
+
+_lockfile_path_cache = None
+
+def _read_lockfile():
+    import subprocess
+    global _lockfile_path_cache
+    try:
+        if _lockfile_path_cache is None:
+            result = subprocess.run(
+                ["wmic", "process", "where", "name='LeagueClientUx.exe'", "get", "ExecutablePath", "/value"],
+                capture_output=True, text=True, timeout=3,
+                creationflags=subprocess.CREATE_NO_WINDOW
+            )
+            exe = ""
+            for line in result.stdout.splitlines():
+                if "ExecutablePath=" in line:
+                    exe = line.split("=", 1)[1].strip()
+                    break
+            if not exe:
+                return None, None
+            _lockfile_path_cache = os.path.join(os.path.dirname(exe), "lockfile")
+        with open(_lockfile_path_cache, 'r') as f:
+            parts = f.read().strip().split(':')
+        if len(parts) >= 4:
+            return parts[2].strip(), parts[3].strip()
+    except Exception:
+        _lockfile_path_cache = None
+    return None, None
+
+def get_champ_select_available_ids():
+    """Returns (lcu_ok, in_session, own_ids, teammate_ids, bench_ids).
+    lcu_ok=False means client not found. in_session=False means not in champ select."""
+    port, password = _read_lockfile()
+    if not port or not password:
+        return False, False, set(), set(), set()
+    try:
+        url = f"https://127.0.0.1:{port}/lol-champ-select/v1/session"
+        resp = requests.get(url, auth=("riot", password), verify=False, timeout=1)
+        if resp.status_code != 200:
+            return True, False, set(), set(), set()
+        session = resp.json()
+        own_ids = set()
+        teammate_ids = set()
+        bench_ids = set()
+        local_cell_id = session.get("localPlayerCellId")
+        for slot in session.get("myTeam", []):
+            cid = slot.get("championId") or slot.get("championPickIntent")
+            if not cid:
+                continue
+            if slot.get("cellId") == local_cell_id:
+                own_ids.add(cid)
+            else:
+                teammate_ids.add(cid)
+        for slot in session.get("benchChampions", []):
+            cid = slot.get("championId")
+            if cid:
+                bench_ids.add(cid)
+        return True, True, own_ids, teammate_ids, bench_ids
+    except Exception:
+        return True, False, set(), set(), set()
+
+def _champ_select_names_from_ids(ids, window):
+    """Given a set of champion IDs from champ select, return names of AP-unlocked
+    champions with remaining checks."""
+    active_location_ids  = window.metadata.get("active_location_ids")
+    checked_location_ids = window.metadata.get("checked_location_ids")
+    names = []
+    for cid in sorted(ids):
+        if cid not in unlocked_champion_ids:
+            continue
+        if cid not in champions:
+            continue
+        champ_name = champions[cid]["name"]
+        # check remaining
+        if active_location_ids is not None and checked_location_ids is not None:
+            prefix = champ_name + " - "
+            checked_ids = {int(x) for x in checked_location_ids}
+            total = sum(1 for n in active_location_ids if n.startswith(prefix))
+            done  = sum(1 for n, lid in active_location_ids.items() if n.startswith(prefix) and lid is not None and int(lid) in checked_ids)
+            if total - done <= 0:
+                continue
+        names.append(champ_name)
+    return names
 
 sg.theme('DarkAmber')
+_THEME_BG = "#2c2825"
 layout = [  [
                 sg.Text('In Match: No', justification = 'center', key = "In Match Text"),
-                sg.Button('Check for Match', key = "Check for Match Button", disabled_button_color = "blue")
+                sg.Button('Match Tracking: Off', key = "Check for Match Button", button_color=("white", "#5C0000")),
+                sg.Text('', key = "Champ Select Text", text_color="yellow")
             ],
             [   
                 sg.Column(
-                [   [sg.Text("Champions Unlocked")],
+                [   [sg.Text("Champions Unlocked"), sg.Text("", key="Champion Count Text"), sg.Checkbox("Hide Completed", key="Hide Completed Checkbox", default=False)],
                     [sg.Table(
-                        [
-                        ], headings = ["Champion Name", "Remaining"], key = "Champions Unlocked Table",
-                        enable_click_events = True)]
+                        [],
+                        headings=["Champion Name", "Remaining"],
+                        key="Champions Unlocked Table",
+                        enable_click_events=True)]
                 ]),
                 sg.Column(
                 [
                     [sg.Text("Remaining Checks")],
                     [sg.Table(
-                        [
-                        ], headings = ["Check"], key = "Values Table",
-                        col_widths = [24], auto_size_columns = False)]
+                        [],
+                        headings=["Check"],
+                        key="Values Table",
+                        col_widths=[24],
+                        auto_size_columns=False)]
                ]),
                 sg.Column(
                 [
                     [sg.Text("Tracked Teammates")],
                     [sg.Listbox(
-                        values = [],
-                        select_mode = sg.LISTBOX_SELECT_MODE_MULTIPLE,
-                        size = (24, 6),
-                        enable_events = True,
-                        key = "Tracked Teammates List")]
+                        [],
+                        size=(22, 5),
+                        enable_events=True,
+                        key="Tracked Teammates List",
+                        no_scrollbar=True)]
                ])
             ]
         ]
 
 window = sg.Window(_WINDOW_TITLE, layout)
-window.metadata = {"champion_sort": "name", "selected_champion_id": None, "game_connected": False}
+window.metadata = {"champion_sort": "name", "selected_champion_id": None, "game_connected": False, "lcu_status": None}
+
+_executor = ThreadPoolExecutor(max_workers=2)
+_game_future = None
+_lcu_future  = None
 while True:
     game_data = None
-    event, values = window.read(timeout=2000)
+    event, values = window.read(timeout=500)
     if event == sg.WIN_CLOSED:
         break
     if event == 'Check for Match Button':
-        in_match = True
+        in_match = not in_match
         window.metadata["game_connected"] = False
+        if in_match:
+            window["Check for Match Button"].update(text="Match Tracking: On", button_color=("white", "#1A5C1A"))
+        else:
+            window["Check for Match Button"].update(text="Match Tracking: Off", button_color=("white", "#5C0000"))
+    if event == "Hide Completed Checkbox":
+        display_champion_list(window)
     if isinstance(event, tuple) and len(event) == 3 and event[0] == "Champions Unlocked Table" and event[1] == "+CLICKED+":
         cell = event[2]
         # cell may be an int or a (row, col) tuple depending on PySimpleGUI version/events
@@ -543,37 +647,105 @@ while True:
             if table_data and 0 <= row_index < len(table_data):
                 window.metadata["selected_champion_id"] = get_champion_id(table_data[row_index][0])
     if event == "Tracked Teammates List":
-        tracked_teammates = set(values["Tracked Teammates List"])
-    check_lp_for_victory(game_values)
+        selected = values.get("Tracked Teammates List", [])
+        if selected:
+            raw = selected[0]
+            name = raw[2:] if raw.startswith(("\u2713 ", "  ")) else raw
+            if name in tracked_teammates:
+                tracked_teammates.discard(name)
+            else:
+                tracked_teammates.add(name)
     get_items(game_values)
     read_cfg(game_values)
     display_champion_list(window)
     display_values(window, game_values)
-    send_starting_champion_check(game_values)
     if in_match:
-        game_data = get_game_data()
-        if game_data is None and window.metadata.get("game_connected"):
-            # Was previously connected — game may have just ended. Retry quickly
-            # to capture the final state before the API shuts down.
-            for _ in range(5):
-                time.sleep(0.4)
-                game_data = get_game_data()
-                if game_data is not None:
-                    break
+        check_lp_for_victory(game_values)
+        send_starting_champion_check(game_values)
+
+    # --- collect results from background threads ---
+    game_status, game_data = "api_down", None
+    if in_match and _game_future is not None and _game_future.done():
+        game_status, game_data = _game_future.result()
+
+    champ_select_result = None
+    if in_match and not window.metadata.get("game_connected") and _lcu_future is not None and _lcu_future.done():
+        lcu_ok, in_session, own_ids, teammate_ids, bench_ids = _lcu_future.result()
+        champ_select_result = (lcu_ok, in_session, own_ids, teammate_ids, bench_ids)
+        window.metadata["lcu_status"] = champ_select_result
+
+    # --- fire off next background fetches ---
+    if in_match and (_game_future is None or _game_future.done()):
+        _game_future = _executor.submit(get_game_data)
+    if in_match and not window.metadata.get("game_connected") and (_lcu_future is None or _lcu_future.done()):
+        _lcu_future = _executor.submit(get_champ_select_available_ids)
+
+    # --- update champ select line (now integrated into status text) ---
+    window["Champ Select Text"].update("")
     if game_data is None:
-        if in_match and not window.metadata.get("game_connected"):
-            # Still waiting for the game to finish loading
-            window["In Match Text"].update("In Match: Waiting for game...")
+        if in_match:
+            lcu_status = window.metadata.get("lcu_status")
+            if lcu_status is not None:
+                lcu_ok, in_session, own_ids, teammate_ids, bench_ids = lcu_status
+                if not lcu_ok:
+                    status_str = "Status: Waiting (LCU: client not found)"
+                elif in_session:
+                    own_names = _champ_select_names_from_ids(own_ids | bench_ids, window)
+                    teammate_names = _champ_select_names_from_ids(teammate_ids, window)
+                    parts = []
+                    if own_names:
+                        parts.append("your pick: " + ", ".join(own_names))
+                    elif own_ids or bench_ids:
+                        parts.append("your pick has no checks remaining")
+                    if teammate_names:
+                        parts.append("teammate: " + ", ".join(teammate_names))
+                    if parts:
+                        status_str = "Status: Champ select - " + " | ".join(parts)
+                    else:
+                        status_str = "Status: Champ select (no checks remaining)"
+                else:
+                    status_str = "Status: Waiting for game..."
+            else:
+                status_str = "Status: Waiting for League client..."
+            window["In Match Text"].update(status_str)
+            window.metadata["game_connected"] = False
             update_teammate_selector(window, [])
         else:
-            window["In Match Text"].update("In Match: No Match Found")
+            window["In Match Text"].update("Status: Tracking off")
             update_teammate_selector(window, [])
-            in_match = False
             window.metadata["game_connected"] = False
     else:
-        window.metadata["game_connected"] = True
-        window["In Match Text"].update("In Match: In Match")
-        update_teammate_selector(window, get_available_teammates(game_data))
-        get_objectives_complete(game_data, game_values)
+        player_name = get_player_name(game_data)
+        champion_name = get_champion_name(game_data, player_name) or "Unknown"
+        champion_id = get_champion_id(champion_name)
+        locked = champion_id is not None and champion_id not in unlocked_champion_ids
+
+        if game_status == "loading":
+            window["In Match Text"].update(f"Status: Loading ({champion_name})...")
+            window.metadata["game_connected"] = True
+            update_teammate_selector(window, get_available_teammates(game_data), game_data)
+        elif game_status == "game_over":
+            result = "?"
+            for event in game_data["events"]["Events"]:
+                if event.get("EventName") == "GameEnd":
+                    result = event.get("Result", "?")
+                    break
+            status_str = f"Status: Game over ({champion_name} - {result})"
+            if locked:
+                status_str += " [champion locked]"
+            window["In Match Text"].update(status_str)
+            window.metadata["game_connected"] = True
+            update_teammate_selector(window, get_available_teammates(game_data), game_data)
+            get_objectives_complete(game_data, game_values)
+        else:  # in_game
+            if champion_id is not None:
+                window.metadata["selected_champion_id"] = champion_id
+            status_str = f"Status: In game ({champion_name})"
+            if locked:
+                status_str += " [champion locked]"
+            window["In Match Text"].update(status_str)
+            window.metadata["game_connected"] = True
+            update_teammate_selector(window, get_available_teammates(game_data), game_data)
+            get_objectives_complete(game_data, game_values)
 
 window.close()

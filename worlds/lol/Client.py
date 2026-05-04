@@ -30,16 +30,35 @@ from NetUtils import NetworkItem, ClientStatus
 from CommonClient import gui_enabled, logger, get_base_parser, ClientCommandProcessor, \
     CommonContext, server_loop
 
+tracker_loaded = False
+try:
+    from worlds.tracker.TrackerClient import TrackerGameContext as SuperContext
+    tracker_loaded = True
+except ModuleNotFoundError:
+    SuperContext = CommonContext
+
 
 def check_stdin() -> None:
     if Utils.is_windows and sys.stdin:
         print("WARNING: Console input is not routed reliably on Windows, use the GUI instead.")
 
 class LOLClientCommandProcessor(ClientCommandProcessor):
-    pass
+    def _cmd_send_starting_champions(self):
+        """Manually trigger the starting champion location checks."""
+        ctx: LOLContext = self.ctx
+        starting_count = int(ctx.slot_data.get('Starting Champion Count', 0)) if ctx.slot_data else 0
+        if starting_count == 0:
+            logger.info("No starting champions configured for this slot.")
+            return
+        for i in range(1, starting_count + 1):
+            filepath = os.path.join(ctx.game_communication_path, f"send{566_000000 + i}")
+            with open(filepath, 'w') as f:
+                pass
+        logger.info(f"Triggered {starting_count} starting champion check(s).")
 
-class LOLContext(CommonContext):
+class LOLContext(SuperContext):
     command_processor: int = LOLClientCommandProcessor
+    tags = {"AP"}
     game = "League of Legends"
     items_handling = 0b111  # full remote
 
@@ -51,6 +70,7 @@ class LOLContext(CommonContext):
         self.lp_label = None
         self.required_lp: int = 0
         self.win_completes_champion: bool = False
+        self.slot_data: dict = {}
         # self.game_communication_path: files go in this path to pass data between us and the actual game
         if "localappdata" in os.environ:
             self.game_communication_path = os.path.expandvars(r"%localappdata%/LOLAP")
@@ -91,6 +111,7 @@ class LOLContext(CommonContext):
                     os.remove(root+"/"+file)
 
     def on_package(self, cmd: str, args: dict):
+        super().on_package(cmd, args)
         if cmd in {"Connected"}:
             if not os.path.exists(self.game_communication_path):
                 os.makedirs(self.game_communication_path)
@@ -106,6 +127,13 @@ class LOLContext(CommonContext):
             #End Handle Slot Data
             self.required_lp = int(args['slot_data'].get('Required LP', 0))
             self.win_completes_champion = bool(args['slot_data'].get('Win Completes Champion', False))
+            self.slot_data = args['slot_data']
+            # Auto-send starting champion checks so players receive them immediately
+            starting_count = int(args['slot_data'].get('Starting Champion Count', 0))
+            for i in range(1, starting_count + 1):
+                filepath = os.path.join(self.game_communication_path, f"send{566_000000 + i}")
+                with open(filepath, 'w') as f:
+                    pass
             # win_completes_champion sibling filter uses ctx.missing_locations (set after Connected)
             # Write a checked locations file for tools (list of ids)
             try:
@@ -248,6 +276,8 @@ def launch():
     async def main(args):
         ctx = LOLContext(args.connect, args.password)
         ctx.server_task = asyncio.create_task(server_loop(ctx), name="server loop")
+        if tracker_loaded:
+            ctx.run_generator()
         if gui_enabled:
             ctx.run_gui()
         ctx.run_cli()
